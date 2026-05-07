@@ -259,6 +259,49 @@ def parse_report(text):
     compilato   = get_structured('COMPILATO_DA') or extract_field(text,[r'^Compilato da[:\s]+([^\n|]{2,50})'],maxlen=60)
     data_val    = get_structured('DATA')        or extract_field(text,[r'Data[^\n:]*[:\s]+(\d{1,2}[^\n|]{3,20}\d{4})'],maxlen=40)
 
+    def get_score(field):
+        """Extract score from SCORE_Sx: X.XX format (new structured format)."""
+        m = re.search(rf'^{field}:\s*([\d]+\.[\d]+)', text, re.IGNORECASE | re.MULTILINE)
+        if m:
+            return float(m.group(1))
+        return None
+
+    # Try new structured format first, fall back to old parsing
+    s1 = get_score('SCORE_S1') or 0.0
+    s2 = get_score('SCORE_S2') or 0.0
+    s3 = get_score('SCORE_S3') or 0.0
+    s4 = get_score('SCORE_S4') or 0.0
+    s5 = get_score('SCORE_S5') or 0.0
+    s6 = get_score('SCORE_S6') or 0.0
+    sg = get_score('SCORE_GLOBALE') or 0.0
+    icn_val = get_score('ICN_VALORE') or 0.0
+
+    # Fallback to old parsing if new format not found
+    if sg == 0.0:
+        m = re.search(r'Score[^:\n]*[:\s]+([\d]+\.[\d]+)', text)
+        if m: sg = float(m.group(1))
+    if icn_val == 0.0:
+        m = re.search(r'ICN[:\s]+([\d]+\.[\d]+)', text)
+        if m: icn_val = float(m.group(1))
+    if s1 == 0.0:
+        for i,key in enumerate(['S1','S2','S3','S4','S5','S6'],1):
+            m = re.search(rf'S{i}[^:.\n]{{0,30}}[:\s]+([\d]+\.[\d]+)', text)
+            if m:
+                locals()[f's{i}'] = float(m.group(1))
+
+    # Cap rule
+    cap = False
+    m_cap = re.search(r'^CAP_RULE:\s*(\w+)', text, re.IGNORECASE | re.MULTILINE)
+    if m_cap:
+        cap = m_cap.group(1).strip().upper() == 'ATTIVA'
+    elif 'CAP RULE' in text.upper() and 'NON ATTIVA' not in text.upper() and 'ATTIVA' in text.upper():
+        cap = True
+
+    # Livello
+    livello = 'Non determinato'
+    m_liv = re.search(r'Livello\s+(\d+\s*[-–]\s*\w+)', text)
+    if m_liv: livello = m_liv.group(1).strip()
+
     data={
         'azienda':     azienda,
         'settore':     settore,
@@ -267,22 +310,13 @@ def parse_report(text):
         'fornitori':   fornitori,
         'compilato_da':compilato,
         'data':        data_val,
-        'score_global':0.0,'icn':0.0,'cap_rule':False,
-        'livello':'Non determinato',
-        'scores':{'S1':0.0,'S2':0.0,'S3':0.0,'S4':0.0,'S5':0.0,'S6':0.0},
-        'full_text':text,
+        'score_global':sg,
+        'icn':         icn_val,
+        'cap_rule':    cap,
+        'livello':     livello,
+        'scores':      {'S1':s1,'S2':s2,'S3':s3,'S4':s4,'S5':s5,'S6':s6},
+        'full_text':   text,
     }
-    m=re.search(r'Score[^:\n]*[:\s]+([\d]+\.[\d]+)',text)
-    if m: data['score_global']=float(m.group(1))
-    m=re.search(r'ICN[:\s]+([\d]+\.[\d]+)',text)
-    if m: data['icn']=float(m.group(1))
-    m=re.search(r'Livello\s+(\d+\s*[-–]\s*\w+)',text)
-    if m: data['livello']=m.group(1).strip()
-    if 'CAP RULE' in text.upper() and 'NON ATTIVA' not in text.upper() and 'ATTIVA' in text.upper():
-        data['cap_rule']=True
-    for i in range(1,7):
-        m=re.search(rf'S{i}[^:.\n]{{0,30}}[:\s]+([\d]+\.[\d]+)',text)
-        if m: data['scores'][f'S{i}']=float(m.group(1))
     return data
 
 def split_sections(text):
@@ -651,20 +685,30 @@ def build_pdf(report_text):
     story.append(h2("7.1  IEC 62443",S))
     story.append(sp(3))
     bs=ParagraphStyle('bsn',fontName='Helvetica',fontSize=7.5,textColor=TEXT_DARK,leading=10)
+
+    # Dynamic status based on actual scores
+    def iec_status(score):
+        if score <= 1.2: return "FRAGILE"
+        if score <= 2.2: return "PARZIALE"
+        return "STRUTTURATO"
+
+    s = data['scores']
     iec_rows=[
         [Paragraph("<font color='white'><b>Principio</b></font>",S['body_small']),
          Paragraph("<font color='white'><b>Stato</b></font>",S['body_small']),
          Paragraph("<font color='white'><b>Osservazione</b></font>",S['body_small'])],
-        [Paragraph("Identificazione e autenticazione (IAC)",bs),"FRAGILE",
-         Paragraph("Account individuali e MFA su accessi remoti",bs)],
-        [Paragraph("Controllo accessi (AC)",bs),"PARZIALE",
-         Paragraph("Processo di revoca e tracciabilita sessioni",bs)],
-        [Paragraph("Integrita sistema (SI)",bs),"PARZIALE",
-         Paragraph("Patch management e change management",bs)],
-        [Paragraph("Continuita e disponibilita (RA)",bs),"PARZIALE",
+        [Paragraph("Identificazione e autenticazione (IAC)",bs), iec_status(s['S3']),
+         Paragraph("Account individuali e MFA su accessi remoti OT",bs)],
+        [Paragraph("Controllo accessi (AC)",bs), iec_status((s['S3']+s['S6'])/2),
+         Paragraph("Processo di revoca accessi e tracciabilita sessioni",bs)],
+        [Paragraph("Integrita sistema (SI)",bs), iec_status(s['S5']),
+         Paragraph("Patch management e change management OT",bs)],
+        [Paragraph("Continuita e disponibilita (RA)",bs), iec_status(s['S4']),
          Paragraph("Backup testati e RTO validati operativamente",bs)],
-        [Paragraph("Governance e policy",bs),"FRAGILE",
-         Paragraph("Policy OT documentate e revisione management",bs)],
+        [Paragraph("Governance e policy",bs), iec_status(s['S6']),
+         Paragraph("Policy OT documentate e revisione periodica management",bs)],
+        [Paragraph("Architettura e segmentazione",bs), iec_status(s['S2']),
+         Paragraph("Separazione IT/OT e regole comunicazione definite",bs)],
     ]
     story.append(norm_tbl(iec_rows,S))
     story.append(sp(10))
@@ -674,16 +718,16 @@ def build_pdf(report_text):
         [Paragraph("<font color='white'><b>Macro-requisito NIS2</b></font>",S['body_small']),
          Paragraph("<font color='white'><b>Stato</b></font>",S['body_small']),
          Paragraph("<font color='white'><b>Osservazione</b></font>",S['body_small'])],
-        [Paragraph("Governance rischio cyber (art. 21)",bs),"FRAGILE",
+        [Paragraph("Governance rischio cyber (art. 21)",bs), iec_status(s['S6']),
          Paragraph("Policy OT e revisione periodica management",bs)],
-        [Paragraph("Misure tecniche (backup, MFA, segmentazione)",bs),"PARZIALE",
-         Paragraph("Completezza e test periodici da verificare",bs)],
-        [Paragraph("Gestione incidenti e notifica 24h (art. 23)",bs),"PARZIALE",
+        [Paragraph("Misure tecniche (backup, MFA, segmentazione)",bs), iec_status((s['S3']+s['S4']+s['S2'])/3),
+         Paragraph("Completezza e test periodici delle misure implementate",bs)],
+        [Paragraph("Gestione incidenti e notifica 24h (art. 23)",bs), iec_status(s['S4']),
          Paragraph("Procedure risposta ed escalation formale",bs)],
-        [Paragraph("Sicurezza supply chain – fornitori (art. 21)",bs),"FRAGILE",
-         Paragraph("Accessi fornitori con MFA e tracciabilita",bs)],
-        [Paragraph("Formazione e awareness (art. 21)",bs),"PARZIALE",
-         Paragraph("Formazione specifica OT periodica",bs)],
+        [Paragraph("Sicurezza supply chain – fornitori (art. 21)",bs), iec_status(s['S3']),
+         Paragraph("Accessi fornitori con MFA e tracciabilita completa",bs)],
+        [Paragraph("Formazione e awareness (art. 21)",bs), iec_status(s['S6']),
+         Paragraph("Formazione specifica OT periodica e strutturata",bs)],
     ]
     story.append(norm_tbl(nis2_rows,S))
     story.append(PageBreak())
