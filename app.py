@@ -228,27 +228,45 @@ def norm_tbl(rows,S):
     t.setStyle(TableStyle(style))
     return t
 
-def extract_field(text,patterns,default='Non specificato',maxlen=60):
+def extract_field(text, patterns, default='Non specificato', maxlen=60):
     for p in patterns:
-        m=re.search(p,text,re.IGNORECASE)
+        m = re.search(p, text, re.IGNORECASE | re.MULTILINE)
         if m:
-            val=m.group(1).strip()
-            val=re.split(r'\n|nel settore|questa configurazione|L\'assenza|La gestione|espone',val)[0]
-            val=clean(val).strip('|').strip()
-            if val and len(val)<maxlen:
+            val = m.group(1).strip()
+            # Stop at newline or pipe
+            val = re.split(r'\n|\|', val)[0]
+            val = clean(val).strip()
+            if val and len(val) < maxlen:
                 return val
     return default
 
 def parse_report(text):
+    # First try structured format (CAMPO: valore) from new prompt instruction
+    def get_structured(field_name):
+        m = re.search(rf'^{field_name}:\s*(.+)$', text, re.IGNORECASE | re.MULTILINE)
+        if m:
+            val = m.group(1).strip()
+            val = clean(val)
+            if val and len(val) < 80:
+                return val
+        return None
+
+    azienda     = get_structured('AZIENDA')     or extract_field(text,[r'^Azienda[:\s]+([^\n|]{2,50})'],maxlen=60)
+    settore     = get_structured('SETTORE')     or extract_field(text,[r'^Settore[:\s]+([^\n|]{2,50})'],maxlen=60)
+    dimensione  = get_structured('DIMENSIONE')  or extract_field(text,[r'^Dimensione[:\s]+([^\n|]{2,50})'],maxlen=60)
+    nis2        = get_structured('NIS2')        or extract_field(text,[r'^Esposizione NIS2[:\s]+([^\n|]{2,40})',r'^NIS2[:\s]+([^\n|]{2,40})'],maxlen=50)
+    fornitori   = get_structured('FORNITORI')   or extract_field(text,[r'^Fornitori[^\n:]*[:\s]+([^\n|]{2,40})'],maxlen=50)
+    compilato   = get_structured('COMPILATO_DA') or extract_field(text,[r'^Compilato da[:\s]+([^\n|]{2,50})'],maxlen=60)
+    data_val    = get_structured('DATA')        or extract_field(text,[r'Data[^\n:]*[:\s]+(\d{1,2}[^\n|]{3,20}\d{4})'],maxlen=40)
+
     data={
-        'azienda':     extract_field(text,[r'Azienda[:\s*]+([^\n|]{2,50})']),
-        'settore':     extract_field(text,[r'Settore[:\s*]+([^\n|]{2,50})']),
-        'dimensione':  extract_field(text,[r'Dimensione[:\s*]+([^\n|]{2,50})']),
-        'nis2':        extract_field(text,[r'Esposizione NIS2[:\s*]+([^\n|]{2,40})',
-                                           r'Esposizione normativa[:\s*]+([^\n|]{2,40})']),
-        'fornitori':   extract_field(text,[r'Fornitori[^\n:]*[:\s*]+([^\n|]{2,40})']),
-        'compilato_da':extract_field(text,[r'Compilato da[:\s*]+([^\n|]{2,50})']),
-        'data':        extract_field(text,[r'Data[^\n:]*[:\s*]+(\d{1,2}[^\n|]{3,20}\d{4})']),
+        'azienda':     azienda,
+        'settore':     settore,
+        'dimensione':  dimensione,
+        'nis2':        nis2,
+        'fornitori':   fornitori,
+        'compilato_da':compilato,
+        'data':        data_val,
         'score_global':0.0,'icn':0.0,'cap_rule':False,
         'livello':'Non determinato',
         'scores':{'S1':0.0,'S2':0.0,'S3':0.0,'S4':0.0,'S5':0.0,'S6':0.0},
