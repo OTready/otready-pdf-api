@@ -232,6 +232,22 @@ def norm_table(rows, S):
                 break
     t.setStyle(TableStyle(style))
     return t
+def clean_html_for_reportlab(text):
+    """Clean HTML tags that ReportLab cannot handle."""
+    # Fix self-closing br tags
+    text = re.sub(r'<br\s*/?>', ' ', text)
+    # Remove para tags
+    text = re.sub(r'</?para>', '', text)
+    # Remove p tags but keep content
+    text = re.sub(r'</?p>', ' ', text)
+    # Remove strong/b tags but keep content  
+    text = re.sub(r'<strong>(.*?)</strong>', r'\1', text)
+    text = re.sub(r'<b>(.*?)</b>', r'\1', text)
+    # Remove other HTML tags
+    text = re.sub(r'<[^>]+>', ' ', text)
+    # Clean multiple spaces
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
 
 def parse_report_text(report_text):
     """
@@ -532,7 +548,7 @@ def build_pdf_from_data(data, report_text):
     # Parse and render the full report text
     lines = report_text.split('\n')
     for line in lines:
-        line = line.strip()
+        line = clean_html_for_reportlab(line.strip())
         if not line:
             story.append(sp(4))
             continue
