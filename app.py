@@ -204,7 +204,7 @@ def norm_tbl(rows,S):
     conv=[]
     for row in rows:
         conv.append([Paragraph(clean(str(c)),bs) if isinstance(c,str) else c for c in row])
-    t=Table(conv,colWidths=[6.8*cm,2*cm,10.2*cm])
+    t=Table(conv,colWidths=[6.8*cm,2.5*cm,9.7*cm])
     style=[
         ('BACKGROUND',(0,0),(-1,0),NAVY),
         ('FONTSIZE',(0,0),(-1,-1),7.5),
@@ -384,20 +384,29 @@ def parse_domains(text):
 
 def parse_risks(text):
     risks=[]
+    skip_words = {'rischio','priorita','impatto','nota','#'}
     for line in text.split('\n'):
-        if '|' in line and not re.match(r'^[\s|:-]+$',line):
-            parts=[p.strip() for p in line.split('|')]
-            if len(parts)>=2 and len(parts[0])>5:
-                risks.append(parts[:4])
+        if '|' not in line: continue
+        if re.match(r'^[\s|:-]+$',line): continue
+        parts=[p.strip() for p in line.split('|') if p.strip()]
+        if len(parts)<2: continue
+        # Skip header rows
+        if parts[0].lower().strip('#').strip() in skip_words: continue
+        if len(parts[0])>3:
+            risks.append(parts[:4])
     return risks[:5]
 
 def parse_roadmap(text):
     items=[]
+    skip_words = {'iniziativa','orizzonte','effort','owner','#'}
     for line in text.split('\n'):
-        if '|' in line and not re.match(r'^[\s|:-]+$',line):
-            parts=[p.strip() for p in line.split('|')]
-            if len(parts)>=3 and len(parts[0])>5:
-                items.append(parts[:4])
+        if '|' not in line: continue
+        if re.match(r'^[\s|:-]+$',line): continue
+        parts=[p.strip() for p in line.split('|') if p.strip()]
+        if len(parts)<2: continue
+        if parts[0].lower().strip() in skip_words: continue
+        if len(parts[0])>3:
+            items.append(parts[:4])
     return items
 
 def build_pdf(report_text):
@@ -545,7 +554,7 @@ def build_pdf(report_text):
     for i,(_,score,_) in enumerate(sec_labels):
         col,bg,_=status_color(score)
         st_style.append(('BACKGROUND',(2,i+1),(2,i+1),bg))
-    sec_tbl=Table(rows,colWidths=[7*cm,1.8*cm,2.5*cm,7.7*cm])
+    sec_tbl=Table(rows,colWidths=[7*cm,1.8*cm,3.2*cm,7.0*cm])
     sec_tbl.setStyle(TableStyle(st_style))
     story.append(sec_tbl)
     story.append(sp(14))
