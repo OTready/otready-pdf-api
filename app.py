@@ -489,7 +489,7 @@ def build_pdf(report_text):
         if re.match(r'^(Livello|ICN|Score|Indice|CAP)',line,re.IGNORECASE) and '|' in line: continue
         bullets_exec.append(line)
     for b in bullets_exec[:5]:
-        story.append(bul(clean(b,600),S,bold=True))
+        story.append(bul(clean(b),S,bold=True))
         story.append(sp(2))
     story.append(PageBreak())
 
