@@ -477,12 +477,19 @@ def build_pdf(report_text):
         story.append(sp(6))
     exec_text=sections.get('exec','')
     story.append(h3("Messaggi chiave per il management",S))
-    bullets_exec=re.findall(r'[•\-\*]\s*\*?\*?([^•\-\*\n]{20,})',exec_text)
-    if not bullets_exec:
-        paras=[p.strip() for p in exec_text.split('\n') if len(p.strip())>50]
-        bullets_exec=paras[1:5]
+    # Extract meaningful paragraphs from exec summary — skip short label lines
+    bullets_exec=[]
+    for line in exec_text.split('\n'):
+        line=line.strip()
+        # Remove bullet markers
+        line=re.sub(r'^[•\-\*]\s*','',line).strip()
+        # Skip short labels like "Livello di Maturità:", "ICN:", "CAP RULE:"
+        if len(line)<40: continue
+        # Skip lines that are just score summaries
+        if re.match(r'^(Livello|ICN|Score|Indice|CAP)',line,re.IGNORECASE) and '|' in line: continue
+        bullets_exec.append(line)
     for b in bullets_exec[:5]:
-        story.append(bul(clean(b,250),S,bold=True))
+        story.append(bul(clean(b,600),S,bold=True))
         story.append(sp(2))
     story.append(PageBreak())
 
